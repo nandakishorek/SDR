@@ -582,6 +582,10 @@ void handle_timeout() {
  * @param neighbor_cost will be filled with cost to the neighbor
  */
 uint16_t get_cost_frm_neighbor(uint16_t neighborid, uint16_t destid) {
+    if (neighborid == destid) {
+        return 0;
+    }
+
     struct DV *iter = dv_list;
     while (iter != NULL && iter->id != neighborid) {
         iter = iter->next;
