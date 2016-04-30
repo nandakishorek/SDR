@@ -65,6 +65,9 @@ static struct timeval timeout;
 
 static struct rentry *list_head = NULL;
 
+// list DVs of neighbors
+static struct DV *dv_list = NULL;
+
 /**
  * Function to send buf
  *
@@ -571,6 +574,137 @@ end:
 void handle_timeout() {
 }
 
+/**
+ * Function to get cost to neigbor, cost from neighbor to dest.
+ *
+ * @param neighborid Router id of the neighbor
+ * @param destid Destination router id
+ * @param neighbor_cost will be filled with cost to the neighbor
+ */
+uint16_t get_cost_frm_neighbor(uint16_t neighborid, uint16_t destid) {
+    struct DV *iter = dv_list;
+    while (iter != NULL && iter->id != neighborid) {
+        iter = iter->next;
+    }
+
+    if (iter == NULL || iter->id != neighborid) {
+        // the neighbor's DV was not found
+        printf("%s: DV for neighbor %" PRIu16 " not found\n", __func__, neighborid);
+        return INF;
+    }
+
+    for (int i = 0; i < N; ++i) {
+        struct dv_entry *entry = &iter->entries[i];
+        if (entry->id == destid) {
+            printf("%s: neighborid %" PRIu16 " destid %" PRIu16 " cost %" PRIu16 "\n", __func__, neighborid, destid, entry->cost);
+            return entry->cost;
+        }
+    }
+}
+
+/**
+ * Function to store DV update from neighbor
+ *
+ * @return the id of the neigbor from which this DV was received
+ */
+uint16_t add_dv_tolist(char *buf) {
+    printf("%s: E\n", __func__);
+
+    struct DV *newdv = malloc(sizeof(struct DV));
+    memset(newdv, 0, sizeof(struct DV));
+
+    struct dv_hdr *header = malloc(sizeof(struct dv_hdr));
+    memcpy(header, buf, sizeof(struct dv_hdr));
+
+    struct dv_entry *entries = malloc(N * sizeof(struct dv_entry));
+    memcpy(entries, buf + sizeof(struct dv_hdr), N * sizeof(struct dv_entry));
+
+    // convert network to host
+    header->n = ntohs(header->n);
+    header->src_port = ntohs(header->src_port);
+    newdv->header = header;
+
+    for (int i = 0; i < N; ++i) {
+        entries[i].port = ntohs(entries[i].port);
+        entries[i].id = ntohs(entries[i].id);
+        entries[i].cost = ntohs(entries[i].cost);
+    }
+    newdv->entries = entries;
+
+    struct rentry *iter = list_head;
+    while (iter != NULL) {
+        if (iter->ipaddr == header->src_ipaddr && iter->cost != 0) {
+            newdv->id = iter->id;
+
+            // reset the missed count
+            iter->update_missed = 0;
+            break;
+        }
+        iter = iter->next;
+    }
+
+    if (dv_list == NULL) {
+        dv_list = newdv;
+    } else {
+        struct DV *list_iter = dv_list;
+        struct DV *prev = list_iter;
+
+        while (list_iter->next != NULL && list_iter->id != newdv->id) {
+            prev = list_iter;
+            list_iter = list_iter->next;
+        }
+
+        if (list_iter->id == newdv->id) {
+            // update the existing entry
+            struct DV *existing = list_iter;
+            free(existing->header);
+            free(existing->entries);
+            newdv->next = existing->next;
+            prev->next = newdv;
+            free(existing);
+        } else {
+            list_iter->next = newdv;
+        }
+    }
+
+    printf("%s: Added DV from id %" PRIu16 " to list\n", __func__, newdv->id);
+
+    printf("%s: X\n", __func__);
+    return newdv->id;
+}
+
+/**
+ * Function to update this node's DV
+ */
+void update_dv(uint16_t neighborid) {
+    printf("%s: E\n", __func__);
+
+    struct rentry *iter = list_head;
+    while (iter != NULL) {
+        if (iter->id != myid) {
+            uint16_t min_cost = INF;
+            struct rentry *riter = list_head;
+            while(riter != NULL) {
+                if (riter->is_neighbor) {
+                    uint16_t total = get_cost_frm_neighbor(riter->id, iter->id) + riter->cost;
+                    if (total < min_cost) {
+                        min_cost = total;
+                    }
+                }
+                riter = riter->next;
+            }
+
+            // update the cost with min_cost
+            iter->cost = min_cost;
+            printf("%s: New cost to %" PRIu16 " is %" PRIu16 "\n", __func__, iter->id, iter->cost);
+        }
+
+        iter = iter->next;
+    }
+
+    printf("%s: X\n", __func__);
+}
+
 void handle_dv_update(int sockfd) {
     printf("%s: E\n", __func__);
 
@@ -582,6 +716,7 @@ void handle_dv_update(int sockfd) {
         goto end;
     }
 
+    /*
     struct dv_hdr *header = (struct dv_hdr *)buf;
     printf("%s: N %" PRIu16 ",src port %" PRIu16 "\n", __func__, ntohs(header->n), ntohs(header->src_port));
     char ipstr[INET_ADDRSTRLEN];
@@ -600,6 +735,13 @@ void handle_dv_update(int sockfd) {
 
         offset += sizeof(struct dv_entry);
     }
+    */
+
+    // update the neighbor dv list
+    uint16_t neighborid = add_dv_tolist(buf);
+
+    // update my DV
+    update_dv(neighborid);
 
 end:
     free(buf);
