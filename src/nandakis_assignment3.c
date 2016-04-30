@@ -29,8 +29,11 @@
 #include <netinet/in.h>
 #include <unistd.h>
 #include <inttypes.h>
+#include <sys/time.h>
+#include <arpa/inet.h>
 #include "../include/main.h"
 #include "../include/packet.h"
+#include "../include/routing.h"
 
 #define BACKLOG 10
 #define CTRL_HDR_SIZE 8
@@ -40,12 +43,27 @@ int ctrl_sockfd;
 int rout_sockfd;
 int data_sockfd;
 
-//control port
+// ports
 uint16_t ctrl_port;
+uint16_t rout_port;
+uint16_t data_port;
 
 static fd_set read_fds;
 static fd_set all_fds;
 static int maxfd;
+
+// IP is in network format
+static uint32_t myip;
+static uint16_t myid;
+
+// number of routers
+static uint16_t N;
+
+// update interval
+static uint16_t interval;
+static struct timeval timeout;
+
+static struct rentry *list_head = NULL;
 
 /**
  * Function to send buf
@@ -77,21 +95,27 @@ int sendall(int s, char *buf, int *len){
  * @param s socket fd
  * @param buf the buffer
  * @param len length of data to be received
+ * @return total number of bytes read
  *
  *  This function is similar to sendall in beej.us guide
  */
 int recvall(int s, char *buf, int *len){
+    //printf("%s: E\n", __func__);
     int total = 0;
     int bytesleft = *len;
-    int n = 0;
+    int n = -1;
     while(total < *len) {
         n = recv(s, buf+total, bytesleft, 0);
-        if (n == -1) { break; }
+        //printf("%s: read %d bytes\n", __func__, n);
+        if (n <= 0) { break; }
         total += n;
         bytesleft -= n;
-    }   
+    }
     *len = total;
-    return n==-1?-1:0; // return -1 on failure, 0 on success
+
+    //printf("%s: Total %d bytes\n", __func__, total);
+    //printf("%s: X\n", __func__);
+    return (n < 0) ? -1 : 0; // return -1 on failure, 0 on success
 }
 
 /**
@@ -134,6 +158,43 @@ void create_ctrl_sock() {
 
     FD_SET(ctrl_sockfd, &all_fds);
     maxfd = ctrl_sockfd;
+}
+
+/**
+ * Function to create router socket
+ */
+void create_router_sock() {
+    rout_sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (ctrl_sockfd < 0) {
+        perror("Error creating socket");
+        exit(EXIT_FAILURE);
+    }
+
+    int yes;
+    if (setsockopt(rout_sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
+        perror("setsockopt");
+        close(ctrl_sockfd);
+        exit(EXIT_FAILURE);
+    }
+
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(struct sockaddr_in));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_port = htons(rout_port);
+
+    if(bind(rout_sockfd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        perror("bind() failed");
+        close(rout_sockfd);
+        exit(EXIT_FAILURE);
+    }
+
+    printf("%s: Control socket bind success\n", __func__);
+
+    FD_SET(rout_sockfd, &all_fds);
+    if (rout_sockfd > maxfd) {
+        maxfd = rout_sockfd;
+    }
 }
 
 /**
@@ -183,7 +244,7 @@ char* create_response_header(int sockfd, uint8_t control_code, uint8_t response_
     struct sockaddr_in addr;
     socklen_t addr_size = sizeof(struct sockaddr_in);
 
-    buffer = (char *) malloc(sizeof(char)*CTRL_HDR_SIZE);
+    buffer = malloc(sizeof(char)*CTRL_HDR_SIZE);
     memset(buffer, 0, CTRL_HDR_SIZE);
 
     cntrl_resp_header = (struct ctrl_resp_hdr *)buffer;
@@ -203,6 +264,8 @@ char* create_response_header(int sockfd, uint8_t control_code, uint8_t response_
 }
 
 void handle_author_msg(int sockfd) {
+    printf("%s: E\n", __func__);
+
     // payload
     char *payload = "I, nandakis, have read and understood the course academic integrity policy.";
     uint16_t len = (uint16_t)strlen(payload);
@@ -218,33 +281,262 @@ void handle_author_msg(int sockfd) {
     // send the response back
     int buflen = len + CTRL_HDR_SIZE;
     if (sendall(sockfd, buf, &buflen) == -1) {
-        printf("Error: unable to send AUTHOR resp");
+        printf("%s: error - unable to send resp\n", __func__);
     }
 
     free(buf);
     free(hdr);
+    printf("%s: X\n", __func__);
+}
+
+void parse_init_payload(char *payload) {
+    printf("%s: E\n", __func__);
+
+    int offset = 0;
+
+    // number of routers
+    memcpy(&N, payload + offset, sizeof(uint16_t));
+    N = ntohs(N);
+    printf("%s: Number of routers %" PRIu16 "\n", __func__, N);
+
+    // update interval
+    offset = sizeof(uint16_t);
+    memcpy(&interval, payload + offset, sizeof(uint16_t));
+    interval = ntohs(interval);
+    printf("%s: Update interval %" PRIu16 "\n", __func__, interval);
+
+    offset += sizeof(uint16_t);
+    for(int i = 0; i < N; ++i) {
+
+        // create an entry and populate it
+        struct rentry *entry = malloc(sizeof(struct rentry));
+        memset(entry, 0, sizeof(struct rentry));
+
+        memcpy(&entry->id, payload + offset, sizeof(entry->id));
+        offset += sizeof(entry->id);
+        entry->id = ntohs(entry->id);
+        printf("%s: Router id %" PRIu16 "\n", __func__, entry->id);
+
+        memcpy(&entry->rout_port, payload + offset, sizeof(entry->rout_port));
+        offset += sizeof(entry->rout_port);
+        entry->rout_port = ntohs(entry->rout_port);
+        printf("%s: Router port %" PRIu16 "\n", __func__, entry->rout_port);
+
+        memcpy(&entry->data_port, payload + offset, sizeof(entry->data_port));
+        offset += sizeof(entry->data_port);
+        entry->data_port = ntohs(entry->data_port);
+        printf("%s: Data port %" PRIu16 "\n", __func__, entry->data_port);
+
+        memcpy(&entry->cost, payload + offset, sizeof(entry->cost));
+        offset += sizeof(entry->cost);
+        entry->cost = ntohs(entry->cost);
+        printf("%s: Cost %" PRIu16 "\n", __func__, entry->cost);
+
+        memcpy(&entry->ipaddr, payload + offset, sizeof(entry->ipaddr));
+        offset += sizeof(entry->ipaddr);
+
+        char ipstr[INET_ADDRSTRLEN];
+        if (inet_ntop(AF_INET, &(entry->ipaddr), ipstr, INET_ADDRSTRLEN) != NULL) {
+            printf("%s: IP address %s \n", __func__, ipstr);
+        }
+
+        // add this entry to the list
+        if (list_head == NULL) {
+            list_head = entry;
+        } else {
+            struct rentry *iter = list_head;
+            while(iter->next != NULL) {
+                iter = iter->next;
+            }
+            iter->next = entry;
+        }
+
+        // get this router's id
+        if (entry->cost == 0) {
+            myid = entry->id;
+        }
+
+        // check if neighbor
+        if (entry->cost == INF) {
+            entry->is_neighbor = 0;
+        } else {
+            entry->is_neighbor = 1;
+        }
+    }
+
+    printf("%s: X\n", __func__);
+}
+
+/**
+ * Function to send msg using UDP
+ */
+void send_udp_msg(char *msg, int len, uint32_t destip, uint16_t destport){
+    printf("%s: E\n", __func__);
+
+    // create a UDP socket
+    int sfd = socket(AF_INET, SOCK_DGRAM, 0);
+
+    if (sfd == -1) {
+        perror("Error creating UDP socket");
+        exit(EXIT_FAILURE);
+    }
+
+    struct sockaddr_in sa;
+    memset(&sa, 0, sizeof(struct sockaddr_in));
+    sa.sin_family = AF_INET;
+    sa.sin_addr.s_addr = destip;
+    sa.sin_port = htons(destport);
+
+    // connect, just to use send()
+    if (connect(sfd, (const struct sockaddr*) &sa, sizeof(struct sockaddr_in)) == -1) {
+        perror("Error connecting");
+        exit(EXIT_FAILURE);
+    }
+
+    //send the message
+    int msglen = len;
+    if (sendall(sfd, msg, &msglen) == -1) {
+        printf("%s: error - unable to send message\n", __func__);
+    }
+ 
+    close(sfd);
+
+    printf("%s: X\n", __func__);
+}
+
+char* create_dv_packet(int *len) {
+    char *buf = malloc(sizeof(struct dv_hdr) + N * sizeof(struct dv_entry));
+    int offset = 0;
+
+    // create header
+    struct dv_hdr header;
+    header.n = N;
+    header.src_port = htons(rout_port);
+    header.src_ipaddr = myip;
+
+    memcpy(buf, &header, sizeof(struct dv_hdr));
+    offset += sizeof(struct dv_hdr);
+
+    struct rentry *iter = list_head;
+    while(iter != NULL) {
+        struct dv_entry entry;
+
+        entry.ipaddr = iter->ipaddr;
+        entry.port = htons(iter->rout_port);
+        entry.padding = 0;
+        entry.id = htons(iter->id);
+        entry.cost = htons(iter->cost);
+
+        memcpy(buf + offset, &entry, sizeof(struct dv_entry));
+        offset += sizeof(struct dv_entry);
+
+        iter = iter->next;
+    }
+
+    return buf;
+}
+
+/**
+ *
+ * Advertise DV to neighbors
+ *
+ */
+void send_dv() {
+    printf("%s: E\n", __func__);
+
+    int len;
+    char *msg = create_dv_packet(&len);
+
+    struct rentry *iter = list_head;
+    while(iter != NULL) {
+        if (iter->is_neighbor) {
+            send_udp_msg(msg, len, iter->ipaddr, iter->rout_port);
+        }
+        iter = iter->next;
+    }
+
+    free(msg);
+    printf("%s: X\n", __func__);
+}
+
+void start_router() {
+    printf("%s: E\n", __func__);
+
+    // create scoket and listen on routing port
+    create_router_sock();
+
+    // send DV to neighbors
+    send_dv();
+
+    printf("%s: X\n", __func__);
+}
+
+void handle_ctrl_init(int sockfd, uint16_t payload_len) {
+    printf("%s: E\n", __func__);
+    char *payload = malloc(sizeof(char) * payload_len);
+
+    printf("%s: payload len %" PRIu16 "\n", __func__, payload_len);
+    int len = payload_len;
+    if (recvall(sockfd, payload, &len) == -1) {
+        printf("%s: recv error\n", __func__);
+        goto end;
+    }
+
+    printf("%s: received init payload\n", __func__);
+
+    // parse the payload
+    parse_init_payload(payload);
+
+    // start listening for routing and data updates
+    start_router();
+
+    // create response header
+    char *hdr = create_response_header(sockfd, (uint8_t)INIT, 0, 0);
+
+    // send response back
+    int buflen = CTRL_HDR_SIZE;
+    if (sendall(sockfd, hdr, &buflen) == -1) {
+        printf("%s: error - unable to send resp\n", __func__);
+    }
+    free(hdr);
+
+end:
+    free(payload);
+    printf("%s: X\n", __func__);
 }
 
 void handle_ctrl_msg(int sockfd) {
+    printf("%s: E\n", __func__);
 
-    char *buf;
-
-    buf = malloc(sizeof(char) * CTRL_HDR_SIZE);
+    char *buf = malloc(sizeof(char) * CTRL_HDR_SIZE);
     memset(buf, 0, CTRL_HDR_SIZE);
 
     int len = CTRL_HDR_SIZE;
     if (recvall(sockfd, buf, &len) == -1) {
-       printf("recv error");
-       free(buf);
-       return;
+       printf("%s: recv error\n", __func__);
+       close(sockfd);
+       FD_CLR(sockfd, &all_fds);
+       goto end;
+    }
+
+    if (len == 0) {
+        // control connection closed
+        printf("%s: ctrl conn %d closed\n", __func__, sockfd);
+        close(sockfd);
+        FD_CLR(sockfd, &all_fds);
+        goto end;
     }
 
     struct ctrl_hdr *control_hdr = (struct ctrl_hdr *)buf;
+    myip = control_hdr->destip;
+    uint16_t payload_len = ntohs(control_hdr->payload_len);
+
     switch(control_hdr->ctrl_code) {
         case AUTHOR:
             handle_author_msg(sockfd);
             break;
         case INIT:
+            handle_ctrl_init(sockfd, payload_len);
             break;
         case ROUTING_TABLE:
             break;
@@ -265,33 +557,46 @@ void handle_ctrl_msg(int sockfd) {
             break;
     }
 
+end:
     free(buf);
+    printf("%s: X\n", __func__);
 }
 
-void start_router() {
+void handle_timeout() {
+}
+
+void start_event_loop() {
+    printf("%s: E\n", __func__);
     int ret;
 
     while(1) {
         read_fds = all_fds;
-        if (select(maxfd + 1, &read_fds, NULL, NULL, NULL) == -1) {
+        ret = select(maxfd + 1, &read_fds, NULL, NULL, NULL);
+        if (ret == -1) {
             perror("error: select");
             exit(EXIT_FAILURE);
         }
 
-        for (int i = 0; i <= maxfd; ++i) {
-            if (FD_ISSET(i, &read_fds)) {
-                if (i == ctrl_sockfd) {
-                    accept_ctrl_conn();
-                } else if (i == rout_sockfd){
-                    // router update
-                } else if (i == data_sockfd) {
-                    // data connection
-                } else {
-                    handle_ctrl_msg(i);
+        if (ret == 0) {
+            // timeout
+            handle_timeout();
+        } else {
+            for (int i = 0; i <= maxfd; ++i) {
+                if (FD_ISSET(i, &read_fds)) {
+                    if (i == ctrl_sockfd) {
+                        accept_ctrl_conn();
+                    } else if (i == rout_sockfd){
+                        // router update
+                    } else if (i == data_sockfd) {
+                        // data connection
+                    } else {
+                        handle_ctrl_msg(i);
+                    }
                 }
             }
         }
     }
+    printf("%s: X\n", __func__);
 }
 
 void get_ctrl_port(char *port) {
@@ -330,7 +635,7 @@ int main(int argc, char **argv) {
     // init the select lists, control socket and start listening for control connections
     init();
 
-    start_router();
+    start_event_loop();
 
     return 0;
 }
