@@ -80,7 +80,7 @@ int sendall(int s, char *buf, int *len){
     int bytesleft = *len; // how many we have left to send
     int n;
     while(total < *len) {
-        n = send(s, buf+total, bytesleft, 0); 
+        n = send(s, buf+total, bytesleft, 0);
         if (n == -1) { break; }
         total += n;
         bytesleft -= n;
@@ -100,21 +100,21 @@ int sendall(int s, char *buf, int *len){
  *  This function is similar to sendall in beej.us guide
  */
 int recvall(int s, char *buf, int *len){
-    //printf("%s: E\n", __func__);
+    printf("%s: E\n", __func__);
     int total = 0;
     int bytesleft = *len;
     int n = -1;
     while(total < *len) {
         n = recv(s, buf+total, bytesleft, 0);
-        //printf("%s: read %d bytes\n", __func__, n);
+        printf("%s: read %d bytes\n", __func__, n);
         if (n <= 0) { break; }
         total += n;
         bytesleft -= n;
     }
     *len = total;
 
-    //printf("%s: Total %d bytes\n", __func__, total);
-    //printf("%s: X\n", __func__);
+    printf("%s: Total %d bytes\n", __func__, total);
+    printf("%s: X\n", __func__);
     return (n < 0) ? -1 : 0; // return -1 on failure, 0 on success
 }
 
@@ -173,7 +173,7 @@ void create_router_sock() {
     int yes;
     if (setsockopt(rout_sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
         perror("setsockopt");
-        close(ctrl_sockfd);
+        close(rout_sockfd);
         exit(EXIT_FAILURE);
     }
 
@@ -354,12 +354,15 @@ void parse_init_payload(char *payload) {
         // get this router's id
         if (entry->cost == 0) {
             myid = entry->id;
+            rout_port = entry->rout_port;
+            data_port = entry->data_port;
         }
 
         // check if neighbor
-        if (entry->cost == INF) {
+        if (entry->cost == INF || entry->cost == 0) {
             entry->is_neighbor = 0;
         } else {
+            printf("%s: Neigbor id %" PRIu16 "\n", __func__, entry->id);
             entry->is_neighbor = 1;
         }
     }
@@ -405,12 +408,13 @@ void send_udp_msg(char *msg, int len, uint32_t destip, uint16_t destport){
 }
 
 char* create_dv_packet(int *len) {
-    char *buf = malloc(sizeof(struct dv_hdr) + N * sizeof(struct dv_entry));
+    *len = sizeof(struct dv_hdr) + N * sizeof(struct dv_entry);
+    char *buf = malloc(*len);
     int offset = 0;
 
     // create header
     struct dv_hdr header;
-    header.n = N;
+    header.n = htons(N);
     header.src_port = htons(rout_port);
     header.src_ipaddr = myip;
 
@@ -450,6 +454,7 @@ void send_dv() {
     struct rentry *iter = list_head;
     while(iter != NULL) {
         if (iter->is_neighbor) {
+            printf("%s: sending dv update to id %" PRIu16 "\n", __func__, iter->id);
             send_udp_msg(msg, len, iter->ipaddr, iter->rout_port);
         }
         iter = iter->next;
@@ -473,8 +478,18 @@ void start_router() {
 
 void handle_ctrl_init(int sockfd, uint16_t payload_len) {
     printf("%s: E\n", __func__);
-    char *payload = malloc(sizeof(char) * payload_len);
 
+    // create response header
+    char *hdr = create_response_header(sockfd, (uint8_t)INIT, 0, 0);
+
+    // send response back
+    int buflen = CTRL_HDR_SIZE;
+    if (sendall(sockfd, hdr, &buflen) == -1) {
+        printf("%s: error - unable to send resp\n", __func__);
+    }
+    free(hdr);
+
+    char *payload = malloc(sizeof(char) * payload_len);
     printf("%s: payload len %" PRIu16 "\n", __func__, payload_len);
     int len = payload_len;
     if (recvall(sockfd, payload, &len) == -1) {
@@ -489,16 +504,6 @@ void handle_ctrl_init(int sockfd, uint16_t payload_len) {
 
     // start listening for routing and data updates
     start_router();
-
-    // create response header
-    char *hdr = create_response_header(sockfd, (uint8_t)INIT, 0, 0);
-
-    // send response back
-    int buflen = CTRL_HDR_SIZE;
-    if (sendall(sockfd, hdr, &buflen) == -1) {
-        printf("%s: error - unable to send resp\n", __func__);
-    }
-    free(hdr);
 
 end:
     free(payload);
@@ -528,6 +533,7 @@ void handle_ctrl_msg(int sockfd) {
     }
 
     struct ctrl_hdr *control_hdr = (struct ctrl_hdr *)buf;
+    printf("%s: Response time limit %" PRIu8 "\n", __func__, control_hdr->resp_time);
     myip = control_hdr->destip;
     uint16_t payload_len = ntohs(control_hdr->payload_len);
 
@@ -565,6 +571,42 @@ end:
 void handle_timeout() {
 }
 
+void handle_dv_update(int sockfd) {
+    printf("%s: E\n", __func__);
+
+    int len = sizeof(struct dv_hdr) + N * sizeof(struct dv_entry);
+    char *buf = malloc(len);
+
+    if (recvall(sockfd, buf, &len) == -1) {
+        printf("%s: recv error\n", __func__);
+        goto end;
+    }
+
+    struct dv_hdr *header = (struct dv_hdr *)buf;
+    printf("%s: N %" PRIu16 ",src port %" PRIu16 "\n", __func__, ntohs(header->n), ntohs(header->src_port));
+    char ipstr[INET_ADDRSTRLEN];
+    if (inet_ntop(AF_INET, &(header->src_ipaddr), ipstr, INET_ADDRSTRLEN) != NULL) {
+        printf("%s: IP address %s \n", __func__, ipstr);
+    }
+
+    int offset = sizeof(struct dv_hdr);
+    for (int i = 0; i < N; ++i) {
+        struct dv_entry *entry = (struct dv_entry *)(buf + offset);
+        printf("%s: port %" PRIu16 ", Id %" PRIu16 ", Cost %" PRIu16, __func__, ntohs(entry->port), ntohs(entry->id), ntohs(entry->cost));
+
+        if (inet_ntop(AF_INET, &(entry->ipaddr), ipstr, INET_ADDRSTRLEN) != NULL) {
+            printf(",IP address %s \n", ipstr);
+        }
+
+        offset += sizeof(struct dv_entry);
+    }
+
+end:
+    free(buf);
+
+    printf("%s: X\n", __func__);
+}
+
 void start_event_loop() {
     printf("%s: E\n", __func__);
     int ret;
@@ -586,7 +628,7 @@ void start_event_loop() {
                     if (i == ctrl_sockfd) {
                         accept_ctrl_conn();
                     } else if (i == rout_sockfd){
-                        // router update
+                        handle_dv_update(i);
                     } else if (i == data_sockfd) {
                         // data connection
                     } else {
