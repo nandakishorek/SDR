@@ -34,4 +34,11 @@ struct __attribute__((__packed__)) DV {
     struct dv_entry *entries;
     struct DV *next;
 };
+
+// timer queue entry
+struct tentry {
+    uint16_t id;
+    struct timeval start_time;
+    struct tentry *next;
+};
 #endif

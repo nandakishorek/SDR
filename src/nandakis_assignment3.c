@@ -61,12 +61,14 @@ static uint16_t N;
 
 // update interval
 static uint16_t interval;
-static struct timeval timeout;
 
 static struct rentry *list_head = NULL;
 
 // list DVs of neighbors
 static struct DV *dv_list = NULL;
+
+// timer queue
+static struct tentry *queue = NULL;
 
 /**
  * Function to send buf
@@ -467,6 +469,58 @@ void send_dv() {
     printf("%s: X\n", __func__);
 }
 
+void enqueue(uint16_t id) {
+    struct tentry *new_entry = malloc(sizeof(struct tentry));
+    new_entry->id = id;
+    new_entry->next = NULL;
+
+    if (gettimeofday(&new_entry->start_time, NULL) < 0) {
+        perror("error: gettimeofday");
+        exit(EXIT_FAILURE);
+    }
+
+    if (queue == NULL) {
+        queue = new_entry;
+    } else {
+        struct tentry *iter = queue;
+        while(iter->next != NULL) {
+            iter = iter->next;
+        }
+        iter->next = new_entry;
+    }
+}
+
+struct tentry* dequeue() {
+    struct tentry *ret = queue;
+    queue = queue->next;
+    return ret;
+}
+
+struct timeval get_timeoutval() {
+    struct timeval ret;
+    memset(&ret, 0, sizeof(struct timeval));
+
+    if (queue != NULL) {
+
+        struct timeval curtime;
+        if(gettimeofday(&curtime, NULL) < 0) {
+            perror("error: gettimeofday");
+            exit(EXIT_FAILURE);
+        }
+
+        struct timeval head = queue->start_time;
+        head.tv_sec += interval;
+        if (timercmp(&curtime, &head, <=)) {
+            timersub(&head, &curtime, &ret);
+        }
+
+        printf("%s: timeout val s=%ld usec=%ld\n", __func__, ret.tv_sec, ret.tv_usec);
+    } else {
+        printf("%s: timer queue is empty\n", __func__);
+    }
+    return ret;
+}
+
 void start_router() {
     printf("%s: E\n", __func__);
 
@@ -475,6 +529,9 @@ void start_router() {
 
     // send DV to neighbors
     send_dv();
+
+    // start timer
+    enqueue(myid);
 
     printf("%s: X\n", __func__);
 }
@@ -572,6 +629,44 @@ end:
 }
 
 void handle_timeout() {
+    printf("%s: E\n", __func__);
+
+    if (queue == NULL) {
+        // before init
+        return;
+    }
+
+    if (queue->id == myid) {
+        send_dv();
+    } else {
+        // increment missed count
+        struct rentry *iter = list_head;
+        while(iter != NULL) {
+            if (queue->id == iter->id) {
+                iter->update_missed = iter->update_missed + 1;
+                break;
+            }
+            iter = iter->next;
+        }
+    }
+
+    // reset the start time
+    if (gettimeofday(&queue->start_time, NULL) < 0) {
+        perror("error: gettimeofday");
+        exit(EXIT_FAILURE);
+    }
+
+    // move the entry from first to last
+    if (queue->next != NULL) {
+        struct tentry *titer = queue;
+        struct tentry *head = queue;
+        queue = queue->next;
+        while(titer->next != NULL) {
+            titer = titer->next;
+        }
+        titer->next = head;
+    }
+    printf("%s: X\n", __func__);
 }
 
 /**
@@ -755,15 +850,22 @@ end:
 
 void start_event_loop() {
     printf("%s: E\n", __func__);
+
+    struct timeval timeout;
     int ret;
 
     while(1) {
+        timeout = get_timeoutval();
+
         read_fds = all_fds;
-        ret = select(maxfd + 1, &read_fds, NULL, NULL, NULL);
+
+        ret = select(maxfd + 1, &read_fds, NULL, NULL, &timeout);
         if (ret == -1) {
             perror("error: select");
             exit(EXIT_FAILURE);
         }
+
+        printf("%s: after select ret %d\n", __func__, ret);
 
         if (ret == 0) {
             // timeout
