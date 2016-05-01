@@ -600,6 +600,7 @@ void handle_ctrl_rtable(int sockfd) {
         memcpy(payload + offset, &cst, sizeof(uint16_t));
         offset += sizeof(uint16_t);
 
+        printf("%s: rid %" PRIu16 ", hid %" PRIu16 ", cost %" PRIu16 "\n", __func__, iter->id, iter->hopid, iter->cost);
         iter = iter->next;
     }
 
