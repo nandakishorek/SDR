@@ -586,15 +586,18 @@ void handle_ctrl_rtable(int sockfd) {
     struct rentry *iter = list_head;
     while(iter != NULL) {
         // router id
-        memcpy(payload + offset, &iter->id, sizeof(uint16_t));
+        uint16_t rid = htons(iter->id);
+        memcpy(payload + offset, &rid, sizeof(uint16_t));
         offset += 2 * sizeof(uint16_t); // includes 2 byte padding
 
         // next hop
-        memcpy(payload + offset, &iter->hopid, sizeof(uint16_t));
+        uint16_t hid = htons(iter->hopid);
+        memcpy(payload + offset, &hid, sizeof(uint16_t));
         offset += sizeof(uint16_t);
 
         // cost
-        memcpy(payload + offset, &iter->cost, sizeof(uint16_t));
+        uint16_t cst = htons(iter->cost);
+        memcpy(payload + offset, &cst, sizeof(uint16_t));
         offset += sizeof(uint16_t);
 
         iter = iter->next;
