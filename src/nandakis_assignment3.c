@@ -357,18 +357,19 @@ void parse_init_payload(char *payload) {
             iter->next = entry;
         }
 
-        // get this router's id
-        if (entry->cost == 0) {
+        // check if neighbor
+        if (entry->cost == INF) {
+            entry->is_neighbor = 0;
+            entry->hopid = INF;
+        } else if (entry->cost == 0) {
+            // get this router's id
             myid = entry->id;
             rout_port = entry->rout_port;
             data_port = entry->data_port;
-        }
-
-        // check if neighbor
-        if (entry->cost == INF || entry->cost == 0) {
             entry->is_neighbor = 0;
+            entry->hopid = myid;
         } else {
-            printf("%s: Neigbor id %" PRIu16 "\n", __func__, entry->id);
+            printf("%s: Neighbor id %" PRIu16 "\n", __func__, entry->id);
             entry->is_neighbor = 1;
             entry->hopid = entry->id; // set next hop to neighbor
         }
