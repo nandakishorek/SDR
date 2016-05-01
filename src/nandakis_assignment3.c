@@ -369,6 +369,7 @@ void parse_init_payload(char *payload) {
         } else {
             printf("%s: Neigbor id %" PRIu16 "\n", __func__, entry->id);
             entry->is_neighbor = 1;
+            entry->hopid = entry->id; // set next hop to neighbor
         }
     }
 
@@ -786,7 +787,7 @@ uint16_t add_dv_tolist(char *buf) {
         }
     }
 
-    printf("%s: Added DV from id %" PRIu16 " to list\n", __func__, newdv->id);
+    printf("%s: DV from id %" PRIu16 "\n", __func__, newdv->id);
 
     printf("%s: X\n", __func__);
     return newdv->id;
@@ -802,6 +803,7 @@ void update_dv() {
     while (iter != NULL) {
         if (iter->id != myid) {
             uint16_t min_cost = INF;
+            uint16_t next_hop = 0;
             struct rentry *riter = list_head;
             while(riter != NULL) {
                 if (riter->is_neighbor) {
@@ -811,6 +813,7 @@ void update_dv() {
                     }
                     if (total < min_cost) {
                         min_cost = (uint16_t)total;
+                        next_hop = riter->id;
                     }
                 }
                 riter = riter->next;
@@ -818,7 +821,8 @@ void update_dv() {
 
             // update the cost with min_cost
             iter->cost = min_cost;
-            printf("%s: New cost to %" PRIu16 " is %" PRIu16 "\n", __func__, iter->id, iter->cost);
+            iter->hopid = next_hop;
+            printf("%s: New cost to %" PRIu16 " is %" PRIu16 ", Hop id %" PRIu16 "\n", __func__, iter->id, iter->cost, iter->hopid);
         }
 
         iter = iter->next;
