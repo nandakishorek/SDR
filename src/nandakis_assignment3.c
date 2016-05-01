@@ -636,6 +636,7 @@ void handle_timeout() {
         return;
     }
 
+    int is_down = 0; // set if the neighbor is down
     if (queue->id == myid) {
         send_dv();
     } else {
@@ -644,27 +645,43 @@ void handle_timeout() {
         while(iter != NULL) {
             if (queue->id == iter->id) {
                 iter->update_missed = iter->update_missed + 1;
+
+                if (iter->update_missed == 3) {
+                    // neighbor down
+                    iter->cost = INF;
+                    iter->is_neighbor = 0;
+                    is_down = 1;
+                    printf("%s: Neighbor %" PRIu16 " down\n",__func__,iter->id);
+                }
                 break;
             }
             iter = iter->next;
         }
     }
 
-    // reset the start time
-    if (gettimeofday(&queue->start_time, NULL) < 0) {
-        perror("error: gettimeofday");
-        exit(EXIT_FAILURE);
-    }
-
-    // move the entry from first to last
-    if (queue->next != NULL) {
-        struct tentry *titer = queue;
-        struct tentry *head = queue;
-        queue = queue->next;
-        while(titer->next != NULL) {
-            titer = titer->next;
+    if (!is_down) {
+        // reset the start time
+        if (gettimeofday(&queue->start_time, NULL) < 0) {
+            perror("error: gettimeofday");
+            exit(EXIT_FAILURE);
         }
-        titer->next = head;
+
+        // move the entry from first to last
+        if (queue->next != NULL) {
+            struct tentry *titer = queue;
+            struct tentry *head = queue;
+            queue = queue->next;
+            while(titer->next != NULL) {
+                titer = titer->next;
+            }
+            titer->next = head;
+        }
+    } else {
+        // neighbor is down
+        // remove entry from timer queue
+        struct tentry *temp = queue;
+        queue = queue->next;
+        free(temp);
     }
     printf("%s: X\n", __func__);
 }
