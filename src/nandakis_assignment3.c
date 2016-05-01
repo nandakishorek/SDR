@@ -954,8 +954,8 @@ void update_dv() {
                     uint32_t total = get_cost_frm_neighbor(riter->id, iter->id) + riter->cost;
                     if (total > INF) {
                         total = INF;
-                    }
-                    if (total < min_cost) {
+                        next_hop = INF;
+                    } else if (total < min_cost) {
                         min_cost = (uint16_t)total;
                         next_hop = riter->id;
                     }
