@@ -625,6 +625,58 @@ void handle_ctrl_rtable(int sockfd) {
     printf("%s: X\n", __func__);
 }
 
+void handle_ctrl_update(int sockfd) {
+    printf("%s: E\n", __func__);
+
+    int len = sizeof(char) * (2 * sizeof(uint16_t));
+    char *buf = malloc(len);
+
+    if (recvall(sockfd, buf, &len) == -1) {
+        printf("%s: recv error\n", __func__);
+        close(sockfd);
+        exit(EXIT_FAILURE);
+    }
+
+    uint16_t rid;
+    memcpy(&rid, buf, sizeof(uint16_t));
+    rid = ntohs(rid);
+
+    uint16_t cost;
+    memcpy(&cost, buf + sizeof(uint16_t), sizeof(uint16_t));
+    cost = ntohs(cost);
+
+    printf("%s: rid %" PRIu16 ",cost %" PRIu16 "\n", __func__, rid, cost);
+
+    struct rentry *iter = list_head;
+    while (iter != NULL) {
+        if (iter->id == rid) {
+            if (cost == INF) {
+                // controller removed the link
+                iter->is_neighbor = 0;
+            } else {
+                iter->is_neighbor = 1;
+            }
+            iter->cost = cost;
+            break;
+        }
+        iter = iter->next;
+    }
+
+    // create header
+    char *hdr = create_response_header(sockfd, (uint8_t)UPDATE, 0, 0);
+
+    // send the response back
+    int buflen = CTRL_HDR_SIZE;
+    if (sendall(sockfd, hdr, &buflen) == -1) {
+        printf("%s: error - unable to send resp\n", __func__);
+    }
+
+    free(hdr);
+    free(buf);
+
+    printf("%s: X\n", __func__);
+}
+
 void handle_ctrl_msg(int sockfd) {
     printf("%s: E\n", __func__);
 
@@ -663,6 +715,7 @@ void handle_ctrl_msg(int sockfd) {
             handle_ctrl_rtable(sockfd);
             break;
         case UPDATE:
+            handle_ctrl_update(sockfd);
             break;
         case CRASH:
             break;
