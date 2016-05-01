@@ -778,7 +778,7 @@ uint16_t add_dv_tolist(char *buf) {
 /**
  * Function to update this node's DV
  */
-void update_dv(uint16_t neighborid) {
+void update_dv() {
     printf("%s: E\n", __func__);
 
     struct rentry *iter = list_head;
@@ -788,9 +788,12 @@ void update_dv(uint16_t neighborid) {
             struct rentry *riter = list_head;
             while(riter != NULL) {
                 if (riter->is_neighbor) {
-                    uint16_t total = get_cost_frm_neighbor(riter->id, iter->id) + riter->cost;
+                    uint32_t total = get_cost_frm_neighbor(riter->id, iter->id) + riter->cost;
+                    if (total > INF) {
+                        total = INF;
+                    }
                     if (total < min_cost) {
-                        min_cost = total;
+                        min_cost = (uint16_t)total;
                     }
                 }
                 riter = riter->next;
@@ -843,7 +846,7 @@ void handle_dv_update(int sockfd) {
     uint16_t neighborid = add_dv_tolist(buf);
 
     // update my DV
-    update_dv(neighborid);
+    update_dv();
 
 end:
     free(buf);
