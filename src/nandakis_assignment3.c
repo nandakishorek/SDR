@@ -677,6 +677,28 @@ void handle_ctrl_update(int sockfd) {
     printf("%s: X\n", __func__);
 }
 
+void handle_ctrl_crash(int sockfd) {
+    printf("%s: E\n", __func__);
+
+    // create header
+    char *hdr = create_response_header(sockfd, (uint8_t)CRASH, 0, 0);
+
+    // send the response back
+    int buflen = CTRL_HDR_SIZE;
+    if (sendall(sockfd, hdr, &buflen) == -1) {
+        printf("%s: error - unable to send resp\n", __func__);
+    }
+    free(hdr);
+
+    close(ctrl_sockfd);
+    close(rout_sockfd);
+    close(data_sockfd);
+    printf("%s: X\n", __func__);
+
+    // exit
+    exit(EXIT_SUCCESS);
+}
+
 void handle_ctrl_msg(int sockfd) {
     printf("%s: E\n", __func__);
 
@@ -718,6 +740,7 @@ void handle_ctrl_msg(int sockfd) {
             handle_ctrl_update(sockfd);
             break;
         case CRASH:
+            handle_ctrl_crash(sockfd);
             break;
         case SENDFILE:
             break;
