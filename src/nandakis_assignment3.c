@@ -37,6 +37,7 @@
 
 #define BACKLOG 10
 #define CTRL_HDR_SIZE 8
+#define RTABLE_ENTRY_SIZE 8
 
 // listen sockets
 int ctrl_sockfd;
@@ -571,6 +572,54 @@ end:
     printf("%s: X\n", __func__);
 }
 
+void handle_ctrl_rtable(int sockfd) {
+    printf("%s: E\n", __func__);
+
+    // allocate mem for payload
+    char *payload = malloc(N * RTABLE_ENTRY_SIZE);
+    uint16_t len = N * RTABLE_ENTRY_SIZE;
+    memset(payload, 0, len);
+
+    // populate payload
+    int offset = 0;
+    struct rentry *iter = list_head;
+    while(iter != NULL) {
+        // router id
+        memcpy(payload + offset, &iter->id, sizeof(uint16_t));
+        offset += 2 * sizeof(uint16_t); // includes 2 byte padding
+
+        // next hop
+        memcpy(payload + offset, &iter->hopid, sizeof(uint16_t));
+        offset += sizeof(uint16_t);
+
+        // cost
+        memcpy(payload + offset, &iter->cost, sizeof(uint16_t));
+        offset += sizeof(uint16_t);
+
+        iter = iter->next;
+    }
+
+    // create header
+    char *hdr = create_response_header(sockfd, (uint8_t)ROUTING_TABLE, 0, len);
+
+    // concat header and payload
+    char *buf = malloc(sizeof(char) * (len + CTRL_HDR_SIZE));
+    memcpy(buf, hdr, CTRL_HDR_SIZE);
+    memcpy(buf + CTRL_HDR_SIZE, payload, len);
+
+    // send the response back
+    int buflen = len + CTRL_HDR_SIZE;
+    if (sendall(sockfd, buf, &buflen) == -1) {
+        printf("%s: error - unable to send resp\n", __func__);
+    }
+
+    free(buf);
+    free(hdr);
+    free(payload);
+
+    printf("%s: X\n", __func__);
+}
+
 void handle_ctrl_msg(int sockfd) {
     printf("%s: E\n", __func__);
 
@@ -606,6 +655,7 @@ void handle_ctrl_msg(int sockfd) {
             handle_ctrl_init(sockfd, payload_len);
             break;
         case ROUTING_TABLE:
+            handle_ctrl_rtable(sockfd);
             break;
         case UPDATE:
             break;
