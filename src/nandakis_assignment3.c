@@ -727,12 +727,15 @@ uint16_t add_dv_tolist(char *buf) {
         entries[i].port = ntohs(entries[i].port);
         entries[i].id = ntohs(entries[i].id);
         entries[i].cost = ntohs(entries[i].cost);
+        printf("%s: port %" PRIu16 ", id %" PRIu16 ", cost %" PRIu16"\n", __func__, entries[i].port, entries[i].id, entries[i].cost);
     }
     newdv->entries = entries;
 
     struct rentry *iter = list_head;
     while (iter != NULL) {
+        printf("%s: iter->id %" PRIu16 "\n", __func__, iter->id);
         if (iter->ipaddr == header->src_ipaddr && iter->cost != 0) {
+            printf("%s: iter->ipaddr %" PRIu32 ", header->src_ipaddr %" PRIu32 "\n", __func__, iter->ipaddr, header->src_ipaddr);
             newdv->id = iter->id;
 
             // reset the missed count
@@ -744,23 +747,23 @@ uint16_t add_dv_tolist(char *buf) {
 
     if (dv_list == NULL) {
         dv_list = newdv;
+        printf("%s: First entry %" PRIu16 "\n", __func__, newdv->id);
     } else {
         struct DV *list_iter = dv_list;
         struct DV *prev = list_iter;
 
         while (list_iter->next != NULL && list_iter->id != newdv->id) {
+            printf("%s: list_iter->id %" PRIu16" \n", __func__, list_iter->id);
             prev = list_iter;
             list_iter = list_iter->next;
         }
 
         if (list_iter->id == newdv->id) {
             // update the existing entry
-            struct DV *existing = list_iter;
-            free(existing->header);
-            free(existing->entries);
-            newdv->next = existing->next;
-            prev->next = newdv;
-            free(existing);
+            memcpy(list_iter->header, newdv->header, sizeof(struct dv_hdr));
+            memcpy(list_iter->entries, newdv->entries, N * sizeof(struct dv_entry));
+
+            printf("%s: Updated existing entry %" PRIu16 "\n", __func__, list_iter->id);
         } else {
             list_iter->next = newdv;
         }

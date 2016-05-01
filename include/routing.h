@@ -28,7 +28,7 @@ struct __attribute__((__packed__)) dv_entry {
     uint16_t cost;
 };
 
-struct __attribute__((__packed__)) DV {
+struct DV {
     uint16_t id;
     struct dv_hdr *header;
     struct dv_entry *entries;
