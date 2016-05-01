@@ -484,19 +484,47 @@ void enqueue(uint16_t id) {
 
     if (queue == NULL) {
         queue = new_entry;
+        printf("%s: First entry %" PRIu16 "\n", __func__, id);
     } else {
         struct tentry *iter = queue;
         while(iter->next != NULL) {
             iter = iter->next;
         }
         iter->next = new_entry;
+        printf("%s: Added %" PRIu16 " to the end\n", __func__, id);
     }
 }
 
-struct tentry* dequeue() {
-    struct tentry *ret = queue;
-    queue = queue->next;
-    return ret;
+/**
+ * Function to remove an entry from the queue
+ *
+ * @param entry if NULL, will remove the first entry
+ */
+void dequeue(struct tentry *entry) {
+    if (queue!= NULL && (entry == NULL || queue->id == entry->id)) {
+        // remove the first entry
+        struct tentry *temp = queue;
+        queue = queue->next;
+        printf("%s: dequeued %" PRIu16 "\n", __func__, temp->id);
+        free(temp);
+    } else {
+        // search and remove the entry
+        struct tentry *prev = NULL;
+        struct tentry *iter = queue;
+        while(iter != NULL) {
+            if (iter->id == entry->id) {
+                prev->next = iter->next;
+                printf("%s: removed %" PRIu16 "\n", __func__, iter->id);
+                free(iter);
+                break;
+            }
+            prev = iter;
+            iter = iter->next;
+        }
+        if (iter == NULL) {
+            printf("%s: id %" PRIu16 " not found\n", __func__, entry->id);
+        }
+    }
 }
 
 struct timeval get_timeoutval() {
@@ -504,7 +532,7 @@ struct timeval get_timeoutval() {
     memset(&ret, 0, sizeof(struct timeval));
 
     if (queue != NULL) {
-
+        printf("%s: head id %" PRIu16 "\n", __func__, queue->id);
         struct timeval curtime;
         if(gettimeofday(&curtime, NULL) < 0) {
             perror("error: gettimeofday");
@@ -791,30 +819,15 @@ void handle_timeout() {
         }
     }
 
-    if (!is_down) {
-        // reset the start time
-        if (gettimeofday(&queue->start_time, NULL) < 0) {
-            perror("error: gettimeofday");
-            exit(EXIT_FAILURE);
-        }
+    // remove first entry
+    int firstid = queue->id;
+    dequeue(NULL);
 
-        // move the entry from first to last
-        if (queue->next != NULL) {
-            struct tentry *titer = queue;
-            struct tentry *head = queue;
-            queue = queue->next;
-            while(titer->next != NULL) {
-                titer = titer->next;
-            }
-            titer->next = head;
-        }
-    } else {
-        // neighbor is down
-        // remove entry from timer queue
-        struct tentry *temp = queue;
-        queue = queue->next;
-        free(temp);
+    // if alive enqueue timer again
+    if (!is_down) {
+        enqueue(firstid);
     }
+
     printf("%s: X\n", __func__);
 }
 
@@ -962,6 +975,24 @@ void update_dv() {
     printf("%s: X\n", __func__);
 }
 
+/**
+ * Function to start the timer for the neighbor update
+ *
+ * @param router id of the neighbor
+ *
+ */
+void start_timer(uint16_t neighborid) {
+    printf("%s: E\n", __func__);
+
+    struct tentry entry;
+    entry.id = neighborid;
+
+    dequeue(&entry);
+
+    enqueue(neighborid);
+    printf("%s: X\n", __func__);
+}
+
 void handle_dv_update(int sockfd) {
     printf("%s: E\n", __func__);
 
@@ -973,32 +1004,14 @@ void handle_dv_update(int sockfd) {
         goto end;
     }
 
-    /*
-    struct dv_hdr *header = (struct dv_hdr *)buf;
-    printf("%s: N %" PRIu16 ",src port %" PRIu16 "\n", __func__, ntohs(header->n), ntohs(header->src_port));
-    char ipstr[INET_ADDRSTRLEN];
-    if (inet_ntop(AF_INET, &(header->src_ipaddr), ipstr, INET_ADDRSTRLEN) != NULL) {
-        printf("%s: IP address %s \n", __func__, ipstr);
-    }
-
-    int offset = sizeof(struct dv_hdr);
-    for (int i = 0; i < N; ++i) {
-        struct dv_entry *entry = (struct dv_entry *)(buf + offset);
-        printf("%s: port %" PRIu16 ", Id %" PRIu16 ", Cost %" PRIu16, __func__, ntohs(entry->port), ntohs(entry->id), ntohs(entry->cost));
-
-        if (inet_ntop(AF_INET, &(entry->ipaddr), ipstr, INET_ADDRSTRLEN) != NULL) {
-            printf(",IP address %s \n", ipstr);
-        }
-
-        offset += sizeof(struct dv_entry);
-    }
-    */
-
     // update the neighbor dv list
     uint16_t neighborid = add_dv_tolist(buf);
 
     // update my DV
     update_dv();
+
+    // start timer
+    start_timer(neighborid);
 
 end:
     free(buf);
