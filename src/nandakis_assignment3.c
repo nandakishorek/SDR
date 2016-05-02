@@ -646,7 +646,7 @@ struct timeval get_timeoutval() {
 
         //printf("%s: timeout val s=%ld usec=%ld\n", __func__, ret.tv_sec, ret.tv_usec);
     } else {
-        printf("%s: timer queue is empty\n", __func__);
+        //printf("%s: timer queue is empty\n", __func__);
     }
     return ret;
 }
