@@ -53,6 +53,7 @@ uint16_t data_port;
 static fd_set read_fds;
 static fd_set all_fds;
 static int maxfd;
+static int is_init = 0;
 
 // IP is in network format
 static uint32_t myip;
@@ -698,6 +699,7 @@ void handle_ctrl_init(int sockfd, uint16_t payload_len) {
     // start listening for routing and data updates
     start_router();
 
+    is_init = 1;
 end:
     free(payload);
     printf("%s: X\n", __func__);
@@ -1351,7 +1353,11 @@ void start_event_loop() {
 
         read_fds = all_fds;
 
-        ret = select(maxfd + 1, &read_fds, NULL, NULL, &timeout);
+        if (is_init) {
+            ret = select(maxfd + 1, &read_fds, NULL, NULL, &timeout);
+        } else {
+            ret = select(maxfd + 1, &read_fds, NULL, NULL, NULL);
+        }
         if (ret == -1) {
             perror("error: select");
             exit(EXIT_FAILURE);
