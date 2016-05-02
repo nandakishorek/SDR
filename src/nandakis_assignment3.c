@@ -905,19 +905,17 @@ void handle_ctrl_sendfile(int sockfd, uint16_t payload_len) {
             // read from file
             int nbytes = fread(&last_pkt.payload, 1, DATA_PYLD_SIZE, fp);
             printf("%s: read %d bytes\n", __func__, nbytes);
-            if (nbytes > 0) {
-                printf("transferred %d bytes\n", nbytes);
-            }
             if (ferror(fp)) {
                 perror("error reading file");
                 break;
             }
 
-            // send it to next hop
-            int buflen = sizeof(struct datapkt);
-            if (sendall(hopfd, (char *)&last_pkt, &buflen) == -1) {
-                printf("%s: error - unable to send resp\n", __func__);
-                break;
+            if (nbytes > 0) {
+                // send it to next hop
+                int buflen = sizeof(struct datapkt);
+                if (sendall(hopfd, (char *)&last_pkt, &buflen) == -1) {
+                    printf("%s: error - unable to send resp\n", __func__);
+                }
             }
         } while(!feof(fp));
 
