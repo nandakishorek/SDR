@@ -31,6 +31,7 @@
 #include <inttypes.h>
 #include <sys/time.h>
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include "../include/main.h"
 #include "../include/packet.h"
 #include "../include/routing.h"
@@ -70,6 +71,13 @@ static struct DV *dv_list = NULL;
 
 // timer queue
 static struct tentry *queue = NULL;
+
+// list of all transfers and related ttl, seqnums
+static struct transfer *transfer_list = NULL;
+
+// penultimate and ultimate routed data packets
+static struct datapkt penul_pkt;
+static struct datapkt last_pkt;
 
 /**
  * Function to send buf
@@ -204,9 +212,100 @@ void create_router_sock() {
 }
 
 /**
+ * Function to create data plane socket and start listening
+ */
+void create_data_sock() {
+    data_sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (ctrl_sockfd < 0) {
+        perror("Error creating socket");
+        exit(EXIT_FAILURE);
+    }
+
+    int yes;
+    if (setsockopt(data_sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
+        perror("setsockopt");
+        close(data_sockfd);
+        exit(EXIT_FAILURE);
+    }
+
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(struct sockaddr_in));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_port = htons(data_port);
+
+    if(bind(data_sockfd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        perror("bind() failed");
+        close(data_sockfd);
+        exit(EXIT_FAILURE);
+    }
+
+    printf("%s: Data socket bind success\n", __func__);
+
+    if(listen(data_sockfd, BACKLOG) < 0) {
+        perror("listen() failed");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("%s: Data socket listen success\n", __func__);
+
+    FD_SET(data_sockfd, &all_fds);
+    if (data_sockfd > maxfd) {
+        maxfd = data_sockfd;
+    }
+}
+
+int open_conn_hop(uint32_t destip) {
+    printf("%s: E\n", __func__);
+
+    struct rentry *iter = list_head;
+
+    // get the next-hop id
+    uint16_t hopid;
+    while(iter != NULL && iter->ipaddr != destip) {
+        iter = iter->next;
+    }
+
+    if (iter == NULL) {
+        printf("%s: Destination node entry not found\n", __func__);
+        return -1;
+    }
+    hopid = iter->hopid;
+
+    struct sockaddr_in sa;
+    memset(&sa, 0, sizeof(struct sockaddr_in));
+    sa.sin_family = AF_INET;
+
+    // get the ip address and port of the next-hop
+    iter = list_head;
+    while(iter != NULL && iter->hopid != hopid) {
+        iter = iter->next;
+    }
+    sa.sin_addr.s_addr = iter->ipaddr;
+    sa.sin_port = htons(iter->data_port);
+
+    int sfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (connect(sfd, (const struct sockaddr*) &sa, sizeof(struct sockaddr_in)) == -1) {
+        perror("error: connect");
+        close(sfd);
+        return -1;
+    }
+
+    printf("%s: Opened connection to next hop %" PRIu16 "\n", __func__, hopid);
+
+    printf("%s: X\n", __func__);
+    return sfd;
+}
+
+/**
  *  Router init
  */
 void init() {
+
+    // clear penultimate and last data packets
+    memset(&penul_pkt, 0, sizeof(struct datapkt));
+    memset(&last_pkt, 0, sizeof(struct datapkt));
+
     FD_ZERO(&read_fds);
     FD_ZERO(&all_fds);
 
@@ -555,8 +654,11 @@ struct timeval get_timeoutval() {
 void start_router() {
     printf("%s: E\n", __func__);
 
-    // create scoket and listen on routing port
+    // create socket and listen on routing port
     create_router_sock();
+
+    // create socket and listen on data port
+    create_data_sock();
 
     // send DV to neighbors
     send_dv();
@@ -728,6 +830,105 @@ void handle_ctrl_crash(int sockfd) {
     exit(EXIT_SUCCESS);
 }
 
+void handle_ctrl_sendfile(int sockfd, uint16_t payload_len) {
+    printf("%s: E\n", __func__);
+
+    int len = payload_len;
+    char *buf = malloc(sizeof(char) * payload_len);
+
+    // read the ctrl payload
+    if (recvall(sockfd, buf, &len) == -1) {
+        printf("%s: recv error\n", __func__);
+        close(sockfd);
+        exit(EXIT_FAILURE);
+    }
+
+    int offset = 0;
+    uint32_t destip;
+    memcpy(&destip, buf + offset, sizeof(uint32_t));
+    offset += sizeof(uint32_t);
+
+    uint8_t ttl;
+    memcpy(&ttl, buf + offset, sizeof(uint8_t));
+    offset += sizeof(uint8_t);
+
+    uint8_t transfer_id;
+    memcpy(&transfer_id, buf + offset, sizeof(uint8_t));
+    offset += sizeof(uint8_t);
+
+    uint16_t seqnum;
+    memcpy(&seqnum, buf + offset, sizeof(uint16_t));
+    seqnum = ntohs(seqnum);
+    offset += sizeof(uint16_t);
+
+    char *filename = malloc(sizeof(char) * (payload_len - offset + 1));
+    memcpy(filename, buf + offset, sizeof(char) * (payload_len - offset));
+    filename[payload_len - offset + 1] = '\0';
+    printf("%s: Filename is %s\n", __func__, filename);
+
+    FILE *fp = NULL;
+    if ((fp = fopen(filename, "rb")) == NULL) {
+        perror("error: could not open file");
+    } else {
+        // first data packet
+        struct transfer *transfer_entry = malloc(sizeof(struct transfer));
+        memset(transfer_entry, 0, sizeof(struct transfer));
+
+        transfer_entry->transfer_id = transfer_id;
+        transfer_entry->start_seqnum = ntohs(seqnum);
+        transfer_entry->ttl = ttl;
+
+        // add the transfer entry to the list
+        if (transfer_list == NULL) {
+            transfer_list = transfer_entry;
+        } else {
+            struct transfer *iter = transfer_list;
+            while(iter->next != NULL) {
+                iter->next = NULL;
+            }
+            iter->next = transfer_entry;
+        }
+
+        // open connection to next hop
+        int hopfd = open_conn_hop(destip);
+
+        do {
+            // copy last packet to penultimate packet
+            memcpy(&penul_pkt, &last_pkt, sizeof(struct datapkt));
+
+            last_pkt.destip = destip;
+            last_pkt.transfer_id = transfer_id;
+            last_pkt.ttl = ttl;
+            last_pkt.seqnum = htons(seqnum++);
+            memset(&last_pkt.payload, 0, DATA_PYLD_SIZE);
+
+            // read from file
+            int nbytes = fread(&last_pkt.payload, 1, DATA_PYLD_SIZE, fp);
+            printf("%s: read %d bytes\n", __func__, nbytes);
+            if (nbytes > 0) {
+                printf("transferred %d bytes\n", nbytes);
+            }
+            if (ferror(fp)) {
+                perror("error reading file");
+                break;
+            }
+
+            // send it to next hop
+            int buflen = sizeof(struct datapkt);
+            if (sendall(hopfd, (char *)&last_pkt, &buflen) == -1) {
+                printf("%s: error - unable to send resp\n", __func__);
+                break;
+            }
+        } while(!feof(fp));
+
+        close(hopfd);
+    }
+
+    free(filename);
+    free(buf);
+    printf("%s: X\n", __func__);
+}
+
 void handle_ctrl_msg(int sockfd) {
     printf("%s: E\n", __func__);
 
@@ -772,6 +973,7 @@ void handle_ctrl_msg(int sockfd) {
             handle_ctrl_crash(sockfd);
             break;
         case SENDFILE:
+            handle_ctrl_sendfile(sockfd, payload_len);
             break;
         case SENDFILE_STATS:
             break;
@@ -1020,6 +1222,126 @@ end:
     printf("%s: X\n", __func__);
 }
 
+
+/**
+ * Function to accept and recv data from neighbor
+ *
+ */
+void handle_data_conn() {
+    printf("%s: E\n", __func__);
+
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(struct sockaddr_in));
+
+    socklen_t len = sizeof(struct sockaddr_in);
+
+    int fd = accept(ctrl_sockfd, (struct sockaddr *) &addr, &len);
+    if (fd < 0) {
+        // TODO: write a cleanup method to close all sockets
+        perror("error: accept");
+        close(data_sockfd);
+        exit(EXIT_FAILURE);
+    }
+
+    printf("%s: new data connection fd=%d\n", __func__, fd);
+
+    struct transfer *transfer_entry = malloc(sizeof(struct transfer));
+    memset(transfer_entry, 0, sizeof(struct transfer));
+
+    // fd for next hop TCP connection
+    int hopfd;
+
+    // file pointer to write the data
+    FILE *fp = NULL;
+
+    // read and route the data packet
+    int count = 0;
+    do {
+        // copy last packet to penultimate packet
+        memcpy(&penul_pkt, &last_pkt, sizeof(struct datapkt));
+
+        // read all the packets
+        int len = sizeof(struct datapkt);
+        memset(&last_pkt, 0, sizeof(struct datapkt));
+        if (recvall(data_sockfd, (char *)&last_pkt, &len) == -1) {
+            printf("recv error");
+
+            // TODO: have a cleanup method to close all sockets
+            close(fd);
+            close(data_sockfd);
+            exit(EXIT_FAILURE);
+        }
+
+        if (len == 0) {
+            printf("%s No data received\n", __func__);
+            break;
+        }
+
+        // decrease the ttl of the packet
+        last_pkt.ttl -= 1;
+
+        if (count == 0) {
+            // first data packet
+            transfer_entry->start_seqnum = ntohs(last_pkt.seqnum);
+            transfer_entry->ttl = last_pkt.ttl;
+
+            // add the transfer entry to the list
+            if (transfer_list == NULL) {
+                transfer_list = transfer_entry;
+            } else {
+                struct transfer *iter = transfer_list;
+                while(iter->next != NULL) {
+                    iter->next = NULL;
+                }
+                iter->next = transfer_entry;
+            }
+
+            // open connection to next hop
+            if (last_pkt.destip != myip) {
+                hopfd = open_conn_hop(last_pkt.destip);
+            } else {
+                // open file to write
+                char filename[9];
+                sprintf(filename, "file-%" PRIu8, last_pkt.transfer_id);
+                printf("%s: filename is %.8s\n", __func__, filename);
+                fp = fopen(filename, "wb");
+                if (fp == NULL) {
+                    perror("could not open file for reading");
+                    break;
+                }
+            }
+        } else {
+            // other packets
+            transfer_entry->end_seqnum = ntohs(last_pkt.seqnum);
+        }
+
+        if (last_pkt.destip == myip) {
+            // write to file
+            if (fwrite(last_pkt.payload, 1, len, fp) != len) {
+                perror("error writing to file");
+                break;
+            }
+        } else {
+            // forward the packet
+            // send response back
+            int buflen = sizeof(struct datapkt);
+            if (sendall(fd, (char *)&last_pkt, &buflen) == -1) {
+                printf("%s: error - unable to send resp\n", __func__);
+                break;
+            }
+        }
+
+        ++count;
+    } while(FIN & ntohl(last_pkt.fin));
+
+    close(fd);
+    if (fp != NULL) {
+        fclose(fp);
+    }
+
+    printf("%s: X\n", __func__);
+}
+
 void start_event_loop() {
     printf("%s: E\n", __func__);
 
@@ -1048,9 +1370,11 @@ void start_event_loop() {
                     if (i == ctrl_sockfd) {
                         accept_ctrl_conn();
                     } else if (i == rout_sockfd){
+                        // DV adverisement from neighbor
                         handle_dv_update(i);
                     } else if (i == data_sockfd) {
-                        // data connection
+                        // data connection from neighbor
+                        handle_data_conn();
                     } else {
                         handle_ctrl_msg(i);
                     }
