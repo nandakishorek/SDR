@@ -644,7 +644,7 @@ struct timeval get_timeoutval() {
             timersub(&head, &curtime, &ret);
         }
 
-        printf("%s: timeout val s=%ld usec=%ld\n", __func__, ret.tv_sec, ret.tv_usec);
+        //printf("%s: timeout val s=%ld usec=%ld\n", __func__, ret.tv_sec, ret.tv_usec);
     } else {
         printf("%s: timer queue is empty\n", __func__);
     }
@@ -1357,7 +1357,7 @@ void start_event_loop() {
             exit(EXIT_FAILURE);
         }
 
-        printf("%s: after select ret %d\n", __func__, ret);
+        //printf("%s: after select ret %d\n", __func__, ret);
 
         if (ret == 0) {
             // timeout
