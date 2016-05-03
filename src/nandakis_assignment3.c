@@ -285,6 +285,11 @@ int open_conn_hop(uint32_t destip) {
     sa.sin_addr.s_addr = iter->ipaddr;
     sa.sin_port = htons(iter->data_port);
 
+    char ipstr[INET_ADDRSTRLEN];
+    if (inet_ntop(AF_INET, &(iter->ipaddr), ipstr, INET_ADDRSTRLEN) != NULL) {
+        printf("%s: IP address %s, data port %" PRIu16 "\n", __func__, ipstr, iter->data_port);
+    }
+
     int sfd = socket(AF_INET, SOCK_STREAM, 0);
     if (connect(sfd, (const struct sockaddr*) &sa, sizeof(struct sockaddr_in)) == -1) {
         perror("error: connect");
