@@ -1288,7 +1288,7 @@ void handle_data_conn() {
         // read all the packets
         int len = sizeof(struct datapkt);
         memset(&last_pkt, 0, sizeof(struct datapkt));
-        if (recvall(data_sockfd, (char *)&last_pkt, &len) == -1) {
+        if (recvall(fd, (char *)&last_pkt, &len) == -1) {
             printf("recv error");
 
             // TODO: have a cleanup method to close all sockets
