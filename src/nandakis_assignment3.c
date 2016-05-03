@@ -279,7 +279,7 @@ int open_conn_hop(uint32_t destip) {
 
     // get the ip address and port of the next-hop
     iter = list_head;
-    while(iter != NULL && iter->hopid != hopid) {
+    while(iter != NULL && iter->id != hopid) {
         iter = iter->next;
     }
     sa.sin_addr.s_addr = iter->ipaddr;
