@@ -899,6 +899,16 @@ void handle_ctrl_sendfile(int sockfd, uint16_t payload_len) {
         // open connection to next hop
         int hopfd = open_conn_hop(destip);
 
+        // wait for the other router to ACK
+        len = sizeof(uint32_t);
+        if (recvall(hopfd, buf, &len) == -1) {
+            printf("%s: recv error\n", __func__);
+            close(hopfd);
+            return;
+        }
+
+        printf("%s: Next hop ACK'ed\n", __func__);
+
         do {
             // copy last packet to penultimate packet
             memcpy(&penul_pkt, &last_pkt, sizeof(struct datapkt));
@@ -1249,6 +1259,16 @@ void handle_data_conn() {
     }
 
     printf("%s: new data connection fd=%d\n", __func__, fd);
+
+    // ACK, so that it can start sending packets
+    uint32_t ack = 0xFFFFFFFF;
+    int acklen = sizeof(uint32_t);
+    if (sendall(fd, (char *)&ack, &acklen) == -1) {
+        printf("%s: error - unable to send resp\n", __func__);
+        close(fd);
+        return;
+    }
+
 
     struct transfer *transfer_entry = malloc(sizeof(struct transfer));
     memset(transfer_entry, 0, sizeof(struct transfer));
