@@ -1350,7 +1350,7 @@ void handle_data_conn() {
             // forward the packet
             // send response back
             int buflen = sizeof(struct datapkt);
-            if (sendall(fd, (char *)&last_pkt, &buflen) == -1) {
+            if (sendall(hopfd, (char *)&last_pkt, &buflen) == -1) {
                 printf("%s: error - unable to send resp\n", __func__);
                 break;
             }
