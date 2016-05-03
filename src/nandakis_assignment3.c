@@ -940,7 +940,7 @@ void handle_ctrl_sendfile(int sockfd, uint16_t payload_len) {
                 // send it to next hop
                 int buflen = sizeof(struct datapkt);
                 if (sendall(hopfd, (char *)&last_pkt, &buflen) == -1) {
-                    printf("%s: error - unable to send resp\n", __func__);
+                    printf("%s: error - unable to send packet\n", __func__);
                 }
             }
         } while(!feof(fp));
@@ -1373,7 +1373,7 @@ void handle_data_conn() {
         }
 
         ++count;
-    } while(FIN & ntohl(last_pkt.fin));
+    } while(FIN != ntohl(last_pkt.fin));
 
     close(fd);
     if (fp != NULL) {
