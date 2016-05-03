@@ -931,6 +931,12 @@ void handle_ctrl_sendfile(int sockfd, uint16_t payload_len) {
             }
 
             if (nbytes > 0) {
+
+                // if EOF set FIN
+                if (feof(fp)) {
+                    last_pkt.fin = FIN;
+                }
+
                 // send it to next hop
                 int buflen = sizeof(struct datapkt);
                 if (sendall(hopfd, (char *)&last_pkt, &buflen) == -1) {
