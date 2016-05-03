@@ -1375,6 +1375,9 @@ void handle_data_conn() {
         ++count;
     } while(FIN != ntohl(last_pkt.fin));
 
+    if (hopfd > 2) {
+        close(hopfd);
+    }
     close(fd);
     if (fp != NULL) {
         fclose(fp);
