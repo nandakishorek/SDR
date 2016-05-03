@@ -1240,7 +1240,7 @@ void handle_data_conn() {
 
     socklen_t len = sizeof(struct sockaddr_in);
 
-    int fd = accept(ctrl_sockfd, (struct sockaddr *) &addr, &len);
+    int fd = accept(data_sockfd, (struct sockaddr *) &addr, &len);
     if (fd < 0) {
         // TODO: write a cleanup method to close all sockets
         perror("error: accept");
