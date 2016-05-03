@@ -840,6 +840,8 @@ void handle_ctrl_crash(int sockfd) {
 void handle_ctrl_sendfile(int sockfd, uint16_t payload_len) {
     printf("%s: E\n", __func__);
 
+    uint8_t resp_code = 0;
+
     int len = payload_len;
     char *buf = malloc(sizeof(char) * payload_len);
 
@@ -876,6 +878,7 @@ void handle_ctrl_sendfile(int sockfd, uint16_t payload_len) {
     FILE *fp = NULL;
     if ((fp = fopen(filename, "rb")) == NULL) {
         perror("error: could not open file");
+        resp_code = 1;
     } else {
         // first data packet
         struct transfer *transfer_entry = malloc(sizeof(struct transfer));
@@ -939,6 +942,13 @@ void handle_ctrl_sendfile(int sockfd, uint16_t payload_len) {
         close(hopfd);
     }
 
+    char *hdr = create_response_header(sockfd, (uint8_t)SENDFILE, resp_code, 0);
+    int hdrlen = CTRL_HDR_SIZE;
+    if (sendall(sockfd, hdr, &hdrlen) == -1) {
+        printf("%s: error - unable to send resp to controller\n", __func__);
+    }
+
+    free(hdr);
     free(filename);
     free(buf);
     printf("%s: X\n", __func__);
