@@ -1351,6 +1351,7 @@ void handle_data_conn() {
                 if (recvall(hopfd, (char*)&ack, &acklen) == -1) {
                     printf("%s: recv error %d\n", __func__, __LINE__);
                 }
+                printf("%s: Next hop ACKed\n", __func__);
             } else {
                 // open file to write
                 char filename[9];
@@ -1384,7 +1385,7 @@ void handle_data_conn() {
         }
 
         ++count;
-    } while(FIN != ntohl(last_pkt.fin));
+    } while(FIN != last_pkt.fin);
 
     if (hopfd > 2) {
         close(hopfd);
