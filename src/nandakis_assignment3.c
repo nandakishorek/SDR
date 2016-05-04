@@ -26,6 +26,8 @@
 #include <errno.h>
 #include <sys/select.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <netinet/in.h>
 #include <unistd.h>
 #include <inttypes.h>
@@ -880,6 +882,11 @@ void handle_ctrl_sendfile(int sockfd, uint16_t payload_len) {
         perror("error: could not open file");
         resp_code = 1;
     } else {
+        struct stat filestat;
+        if (stat(filename, &filestat) < 0) {
+            perror("error: stat");
+        }
+
         // first data packet
         struct transfer *transfer_entry = malloc(sizeof(struct transfer));
         memset(transfer_entry, 0, sizeof(struct transfer));
@@ -912,6 +919,7 @@ void handle_ctrl_sendfile(int sockfd, uint16_t payload_len) {
 
         printf("%s: Next hop ACK'ed\n", __func__);
 
+        // Assumption: file size will always be a multiple of DATA_PYLD_SIZE
         do {
             // copy last packet to penultimate packet
             memcpy(&penul_pkt, &last_pkt, sizeof(struct datapkt));
@@ -930,20 +938,17 @@ void handle_ctrl_sendfile(int sockfd, uint16_t payload_len) {
                 break;
             }
 
-            if (nbytes > 0) {
-
-                // if EOF set FIN
-                if (feof(fp)) {
-                    last_pkt.fin = FIN;
-                }
-
-                // send it to next hop
-                int buflen = sizeof(struct datapkt);
-                if (sendall(hopfd, (char *)&last_pkt, &buflen) == -1) {
-                    printf("%s: error - unable to send packet\n", __func__);
-                }
+            filestat.st_size -= DATA_PYLD_SIZE;
+            if (filestat.st_size == 0) {
+                last_pkt.fin = FIN;
             }
-        } while(!feof(fp));
+
+            // send it to next hop
+            int buflen = sizeof(struct datapkt);
+            if (sendall(hopfd, (char *)&last_pkt, &buflen) == -1) {
+                printf("%s: error - unable to send packet\n", __func__);
+            }
+        } while(filestat.st_size > 0);
 
         close(hopfd);
     }
