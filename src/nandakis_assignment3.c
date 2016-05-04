@@ -1363,7 +1363,7 @@ void handle_data_conn() {
 
         if (last_pkt.destip == myip) {
             // write to file
-            if (fwrite(last_pkt.payload, 1, DATA_PYLD_SIZE, fp) != len) {
+            if (fwrite(last_pkt.payload, 1, DATA_PYLD_SIZE, fp) != DATA_PYLD_SIZE) {
                 perror("error writing to file");
                 break;
             }
