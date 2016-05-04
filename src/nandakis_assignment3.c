@@ -1345,6 +1345,12 @@ void handle_data_conn() {
             // open connection to next hop
             if (last_pkt.destip != myip) {
                 hopfd = open_conn_hop(last_pkt.destip);
+
+                // wait for the other router to ACK
+                int acklen = sizeof(uint32_t);
+                if (recvall(hopfd, (char*)&ack, &acklen) == -1) {
+                    printf("%s: recv error %d\n", __func__, __LINE__);
+                }
             } else {
                 // open file to write
                 char filename[9];
