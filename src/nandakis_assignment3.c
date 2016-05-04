@@ -1310,7 +1310,7 @@ void handle_data_conn() {
         int len = sizeof(struct datapkt);
         memset(&last_pkt, 0, sizeof(struct datapkt));
         if (recvall(fd, (char *)&last_pkt, &len) == -1) {
-            printf("recv error");
+            perror("recv error");
 
             // TODO: have a cleanup method to close all sockets
             close(fd);
@@ -1363,7 +1363,7 @@ void handle_data_conn() {
 
         if (last_pkt.destip == myip) {
             // write to file
-            if (fwrite(last_pkt.payload, 1, len, fp) != len) {
+            if (fwrite(last_pkt.payload, 1, DATA_PYLD_SIZE, fp) != len) {
                 perror("error writing to file");
                 break;
             }
