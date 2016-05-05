@@ -1291,7 +1291,6 @@ void handle_data_conn() {
         return;
     }
 
-
     struct transfer *transfer_entry = malloc(sizeof(struct transfer));
     memset(transfer_entry, 0, sizeof(struct transfer));
 
@@ -1302,15 +1301,12 @@ void handle_data_conn() {
     FILE *fp = NULL;
 
     // read and route the data packet
+    struct datapkt bufpkt;
     int count = 0;
     do {
-        // copy last packet to penultimate packet
-        memcpy(&penul_pkt, &last_pkt, sizeof(struct datapkt));
-
-        // read all the packets
         int len = sizeof(struct datapkt);
-        memset(&last_pkt, 0, sizeof(struct datapkt));
-        if (recvall(fd, (char *)&last_pkt, &len) == -1) {
+        memset(&bufpkt, 0, sizeof(struct datapkt));
+        if (recvall(fd, (char *)&bufpkt, &len) == -1) {
             perror("recv error");
 
             // TODO: have a cleanup method to close all sockets
@@ -1325,68 +1321,75 @@ void handle_data_conn() {
         }
 
         // decrease the ttl of the packet
-        last_pkt.ttl -= 1;
+        bufpkt.ttl -= 1;
 
-        if (count == 0) {
-            // first data packet
-            transfer_entry->start_seqnum = ntohs(last_pkt.seqnum);
-            transfer_entry->ttl = last_pkt.ttl;
+        if (bufpkt.ttl > 0) {
+            // copy last packet to penultimate packet
+            memcpy(&penul_pkt, &last_pkt, sizeof(struct datapkt));
 
-            // add the transfer entry to the list
-            if (transfer_list == NULL) {
-                transfer_list = transfer_entry;
-            } else {
-                struct transfer *iter = transfer_list;
-                while(iter->next != NULL) {
-                    iter->next = NULL;
+            // copy from buffer to last_packet
+            memcpy(&last_pkt, &bufpkt, sizeof(struct datapkt));
+
+            if (count == 0) {
+                // first data packet
+                transfer_entry->start_seqnum = ntohs(last_pkt.seqnum);
+                transfer_entry->ttl = last_pkt.ttl;
+
+                // add the transfer entry to the list
+                if (transfer_list == NULL) {
+                    transfer_list = transfer_entry;
+                } else {
+                    struct transfer *iter = transfer_list;
+                    while(iter->next != NULL) {
+                        iter->next = NULL;
+                    }
+                    iter->next = transfer_entry;
                 }
-                iter->next = transfer_entry;
+
+                // open connection to next hop
+                if (last_pkt.destip != myip) {
+                    hopfd = open_conn_hop(last_pkt.destip);
+
+                    // wait for the other router to ACK
+                    int acklen = sizeof(uint32_t);
+                    if (recvall(hopfd, (char*)&ack, &acklen) == -1) {
+                        printf("%s: recv error %d\n", __func__, __LINE__);
+                    }
+                    printf("%s: Next hop ACKed\n", __func__);
+                } else {
+                    // open file to write
+                    char filename[9];
+                    sprintf(filename, "file-%" PRIu8, last_pkt.transfer_id);
+                    printf("%s: filename is %.8s\n", __func__, filename);
+                    fp = fopen(filename, "wb");
+                    if (fp == NULL) {
+                        perror("could not open file for reading");
+                        break;
+                    }
+                }
+            } else {
+                // other packets
+                transfer_entry->end_seqnum = ntohs(last_pkt.seqnum);
             }
 
-            // open connection to next hop
-            if (last_pkt.destip != myip) {
-                hopfd = open_conn_hop(last_pkt.destip);
-
-                // wait for the other router to ACK
-                int acklen = sizeof(uint32_t);
-                if (recvall(hopfd, (char*)&ack, &acklen) == -1) {
-                    printf("%s: recv error %d\n", __func__, __LINE__);
+            if (last_pkt.destip == myip) {
+                // write to file
+                if (fwrite(last_pkt.payload, 1, DATA_PYLD_SIZE, fp) != DATA_PYLD_SIZE) {
+                    perror("error writing to file");
+                    break;
                 }
-                printf("%s: Next hop ACKed\n", __func__);
             } else {
-                // open file to write
-                char filename[9];
-                sprintf(filename, "file-%" PRIu8, last_pkt.transfer_id);
-                printf("%s: filename is %.8s\n", __func__, filename);
-                fp = fopen(filename, "wb");
-                if (fp == NULL) {
-                    perror("could not open file for reading");
+                // forward the packet
+                // send response back
+                int buflen = sizeof(struct datapkt);
+                if (sendall(hopfd, (char *)&last_pkt, &buflen) == -1) {
+                    printf("%s: error - unable to send resp\n", __func__);
                     break;
                 }
             }
-        } else {
-            // other packets
-            transfer_entry->end_seqnum = ntohs(last_pkt.seqnum);
         }
-
-        if (last_pkt.destip == myip) {
-            // write to file
-            if (fwrite(last_pkt.payload, 1, DATA_PYLD_SIZE, fp) != DATA_PYLD_SIZE) {
-                perror("error writing to file");
-                break;
-            }
-        } else {
-            // forward the packet
-            // send response back
-            int buflen = sizeof(struct datapkt);
-            if (sendall(hopfd, (char *)&last_pkt, &buflen) == -1) {
-                printf("%s: error - unable to send resp\n", __func__);
-                break;
-            }
-        }
-
         ++count;
-    } while(FIN != last_pkt.fin);
+    } while(FIN != bufpkt.fin);
 
     if (hopfd > 2) {
         close(hopfd);
