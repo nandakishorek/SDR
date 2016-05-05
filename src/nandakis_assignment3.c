@@ -789,13 +789,6 @@ void handle_ctrl_update(int sockfd) {
     struct rentry *iter = list_head;
     while (iter != NULL) {
         if (iter->id == rid) {
-            if (cost == INF) {
-                // controller removed the link
-                iter->is_neighbor = 0;
-                iter->hopid = INF;
-            } else {
-                iter->is_neighbor = 1;
-            }
             iter->cost = cost;
             break;
         }
