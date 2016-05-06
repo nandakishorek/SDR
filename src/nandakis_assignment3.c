@@ -1409,6 +1409,11 @@ void handle_data_conn() {
             return;
         }
 
+        if (len == 0) {
+            printf("%s No data received\n", __func__);
+            break;
+        }
+
         memcpy(rout_buf + offset, &temp, sizeof(struct datapkt));
         offset += sizeof(struct datapkt);
         ++count;
