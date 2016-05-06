@@ -993,7 +993,7 @@ void handle_ctrl_stats(int sockfd) {
         offset += sizeof(uint8_t);
 
         // copy TTL
-        memcpy(payload + offset, &iter->transfer_id, sizeof(uint8_t));
+        memcpy(payload + offset, &iter->ttl, sizeof(uint8_t));
         offset += sizeof(uint8_t);
 
         // 2 bytes padding
