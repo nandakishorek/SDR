@@ -1394,6 +1394,7 @@ void handle_data_conn() {
 
             if (count == 0) {
                 // first data packet
+                transfer_entry->transfer_id = last_pkt.transfer_id;
                 transfer_entry->start_seqnum = ntohs(last_pkt.seqnum);
                 transfer_entry->ttl = last_pkt.ttl;
 
