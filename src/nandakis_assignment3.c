@@ -922,7 +922,7 @@ void handle_ctrl_sendfile(int sockfd, uint16_t payload_len) {
             last_pkt.destip = destip;
             last_pkt.transfer_id = transfer_id;
             last_pkt.ttl = ttl;
-            last_pkt.seqnum = htons(seqnum++);
+            last_pkt.seqnum = htons(seqnum);
             last_pkt.fin = 0;
             memset(&last_pkt.payload, 0, DATA_PYLD_SIZE);
 
