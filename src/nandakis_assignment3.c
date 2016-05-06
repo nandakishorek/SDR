@@ -852,12 +852,12 @@ void handle_ctrl_sendfile(int sockfd, uint16_t payload_len) {
     memcpy(&destip, buf + offset, sizeof(uint32_t));
     offset += sizeof(uint32_t);
 
-    uint8_t transfer_id;
-    memcpy(&transfer_id, buf + offset, sizeof(uint8_t));
-    offset += sizeof(uint8_t);
-
     uint8_t ttl;
     memcpy(&ttl, buf + offset, sizeof(uint8_t));
+    offset += sizeof(uint8_t);
+
+    uint8_t transfer_id;
+    memcpy(&transfer_id, buf + offset, sizeof(uint8_t));
     offset += sizeof(uint8_t);
 
     uint16_t seqnum;
