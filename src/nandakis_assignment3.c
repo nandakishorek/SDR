@@ -959,6 +959,70 @@ void handle_ctrl_sendfile(int sockfd, uint16_t payload_len) {
     printf("%s: X\n", __func__);
 }
 
+void handle_ctrl_stats(int sockfd) {
+    printf("%s: E\n", __func__);
+
+    int resp_code = 0;
+    uint8_t req_trans_id;
+    int len = sizeof(uint8_t);
+    if (recvall(sockfd, (char *)&req_trans_id, &len) == -1) {
+        printf("%s: recv error\n", __func__);
+        resp_code = 1;
+    }
+
+    struct transfer *iter = transfer_list;
+    while(iter != NULL) {
+        if (req_trans_id == iter->transfer_id) {
+            break;
+        }
+        iter = iter->next;
+    }
+
+    char *payload = NULL;
+    uint16_t payload_len = 0;
+    if (iter != NULL) {
+        int offset = 0;
+        payload_len = 4 + (sizeof(uint16_t) * (iter->end_seqnum - iter->start_seqnum + 1));
+        payload = malloc(payload_len);
+        memset(payload, 0, payload_len);
+
+        // copy transfer id
+        memcpy(payload + offset, &iter->transfer_id, sizeof(uint8_t));
+        offset += sizeof(uint8_t);
+
+        // copy TTL
+        memcpy(payload + offset, &iter->transfer_id, sizeof(uint8_t));
+        offset += sizeof(uint8_t);
+
+        // 2 bytes padding
+        offset += 2;
+
+        for (int i = iter->start_seqnum; i <= iter->end_seqnum; ++i) {
+            memcpy(payload + offset, &i, sizeof(uint16_t));
+            offset += sizeof(uint16_t);
+        }
+    } else {
+        resp_code = 1;
+    }
+
+    char *hdr = create_response_header(sockfd, (uint8_t)SENDFILE_STATS, resp_code, payload_len);
+    int hdrlen = CTRL_HDR_SIZE;
+    if (sendall(sockfd, hdr, &hdrlen) == -1) {
+        printf("%s: error - unable to send resp to controller\n", __func__);
+    }
+    free(hdr);
+
+    if (payload != NULL) {
+        len = payload_len;
+        if (sendall(sockfd, payload, &len) == -1) {
+            printf("%s: error - unable to send payload to controller\n", __func__);
+        }
+        free(payload);
+    }
+
+    printf("%s: X\n", __func__);
+}
+
 void handle_ctrl_msg(int sockfd) {
     printf("%s: E\n", __func__);
 
@@ -1006,6 +1070,7 @@ void handle_ctrl_msg(int sockfd) {
             handle_ctrl_sendfile(sockfd, payload_len);
             break;
         case SENDFILE_STATS:
+            handle_ctrl_stats(sockfd);
             break;
         case LAST_DATA_PACKET:
             break;
