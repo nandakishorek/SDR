@@ -117,21 +117,21 @@ int sendall(int s, char *buf, int *len){
  *  This function is similar to sendall in beej.us guide
  */
 int recvall(int s, char *buf, int *len){
-    printf("%s: E\n", __func__);
+    //printf("%s: E\n", __func__);
     int total = 0;
     int bytesleft = *len;
     int n = -1;
     while(total < *len) {
         n = recv(s, buf+total, bytesleft, 0);
-        printf("%s: read %d bytes\n", __func__, n);
+        //printf("%s: read %d bytes\n", __func__, n);
         if (n <= 0) { break; }
         total += n;
         bytesleft -= n;
     }
     *len = total;
 
-    printf("%s: Total %d bytes\n", __func__, total);
-    printf("%s: X\n", __func__);
+    //printf("%s: Total %d bytes\n", __func__, total);
+    //printf("%s: X\n", __func__);
     return (n < 0) ? -1 : 0; // return -1 on failure, 0 on success
 }
 
