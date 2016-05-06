@@ -852,12 +852,12 @@ void handle_ctrl_sendfile(int sockfd, uint16_t payload_len) {
     memcpy(&destip, buf + offset, sizeof(uint32_t));
     offset += sizeof(uint32_t);
 
-    uint8_t ttl;
-    memcpy(&ttl, buf + offset, sizeof(uint8_t));
-    offset += sizeof(uint8_t);
-
     uint8_t transfer_id;
     memcpy(&transfer_id, buf + offset, sizeof(uint8_t));
+    offset += sizeof(uint8_t);
+
+    uint8_t ttl;
+    memcpy(&ttl, buf + offset, sizeof(uint8_t));
     offset += sizeof(uint8_t);
 
     uint16_t seqnum;
@@ -1027,6 +1027,16 @@ void handle_ctrl_stats(int sockfd) {
     printf("%s: X\n", __func__);
 }
 
+void handle_ctrl_last_pkt(int sockfd) {
+    printf("%s: E\n", __func__);
+    printf("%s: X\n", __func__);
+}
+
+void handle_ctrl_penul_pkt(int sockfd) {
+    printf("%s: E\n", __func__);
+    printf("%s: X\n", __func__);
+}
+
 void handle_ctrl_msg(int sockfd) {
     printf("%s: E\n", __func__);
 
@@ -1077,8 +1087,10 @@ void handle_ctrl_msg(int sockfd) {
             handle_ctrl_stats(sockfd);
             break;
         case LAST_DATA_PACKET:
+            handle_ctrl_last_pkt(sockfd);
             break;
         case PENULTIMATE_DATA_PACKET:
+            handle_ctrl_penul_pkt(sockfd);
             break;
         default:
             printf("Error: unknown control code\n");

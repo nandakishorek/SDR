@@ -49,8 +49,8 @@ struct tentry {
 // data packet to be routed
 struct __attribute__((__packed__)) datapkt {
     uint32_t destip;
-    uint8_t ttl;
     uint8_t transfer_id;
+    uint8_t ttl;
     uint16_t seqnum;
     uint32_t fin; // set MSB for FIN flag
     char payload[DATA_PYLD_SIZE];
