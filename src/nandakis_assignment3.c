@@ -41,7 +41,7 @@
 #define BACKLOG 10
 #define CTRL_HDR_SIZE 8
 #define RTABLE_ENTRY_SIZE 8
-#define ROUTING_BUF_SIZE (10000 * sizeof(struct datapkt)) // 10000 data packets
+#define ROUTING_BUF_SIZE (10240 * sizeof(struct datapkt)) // 10MB data
 
 // listen sockets
 int ctrl_sockfd;
