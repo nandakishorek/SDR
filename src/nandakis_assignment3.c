@@ -41,6 +41,7 @@
 #define BACKLOG 10
 #define CTRL_HDR_SIZE 8
 #define RTABLE_ENTRY_SIZE 8
+#define ROUTING_BUF_SIZE (10000 * sizeof(struct datapkt)) // 10000 data packets
 
 // listen sockets
 int ctrl_sockfd;
@@ -82,6 +83,8 @@ static struct transfer *transfer_list = NULL;
 static struct datapkt penul_pkt;
 static struct datapkt last_pkt;
 
+// routing buffer
+static char *rout_buf = NULL;
 /**
  * Function to send buf
  *
@@ -309,6 +312,9 @@ int open_conn_hop(uint32_t destip) {
  *  Router init
  */
 void init() {
+
+    // allocate routing buffer
+    rout_buf = malloc(ROUTING_BUF_SIZE);
 
     // clear penultimate and last data packets
     memset(&penul_pkt, 0, sizeof(struct datapkt));
@@ -1389,6 +1395,25 @@ void handle_data_conn() {
         return;
     }
 
+    // recv all packets in routing buffer
+    memset(rout_buf, 0, ROUTING_BUF_SIZE);
+    struct datapkt temp;
+    int count;
+    int offset = 0;
+    do {
+        int len = sizeof(struct datapkt);
+        memset(&temp, 0, sizeof(struct datapkt));
+        if (recvall(fd, (char *)&temp, &len) == -1) {
+            perror("recv error");
+            close(fd);
+            return;
+        }
+
+        memcpy(rout_buf + offset, &temp, sizeof(struct datapkt));
+        offset += sizeof(struct datapkt);
+        ++count;
+    } while(FIN != temp.fin);
+
     struct transfer *transfer_entry = malloc(sizeof(struct transfer));
     memset(transfer_entry, 0, sizeof(struct transfer));
 
@@ -1398,37 +1423,23 @@ void handle_data_conn() {
     // file pointer to write the data
     FILE *fp = NULL;
 
-    // read and route the data packet
-    struct datapkt bufpkt;
-    int count = 0;
-    do {
-        int len = sizeof(struct datapkt);
-        memset(&bufpkt, 0, sizeof(struct datapkt));
-        if (recvall(fd, (char *)&bufpkt, &len) == -1) {
-            perror("recv error");
-
-            // TODO: have a cleanup method to close all sockets
-            close(fd);
-            close(data_sockfd);
-            exit(EXIT_FAILURE);
-        }
-
-        if (len == 0) {
-            printf("%s No data received\n", __func__);
-            break;
-        }
+    // route or store packets in routing buffer
+    offset = 0;
+    for(int i = 0; i < count; ++i) {
+        struct datapkt *pkt = (struct datapkt *)(rout_buf + offset);
+        offset += sizeof(struct datapkt);
 
         // decrease the ttl of the packet
-        bufpkt.ttl -= 1;
+        pkt->ttl -= 1;
 
-        if (bufpkt.ttl > 0) {
+        if (pkt->ttl > 0) {
             // copy last packet to penultimate packet
             memcpy(&penul_pkt, &last_pkt, sizeof(struct datapkt));
 
             // copy from buffer to last_packet
-            memcpy(&last_pkt, &bufpkt, sizeof(struct datapkt));
+            memcpy(&last_pkt, pkt, sizeof(struct datapkt));
 
-            if (count == 0) {
+            if (i == 0) {
                 // first data packet
                 transfer_entry->transfer_id = last_pkt.transfer_id;
                 transfer_entry->start_seqnum = ntohs(last_pkt.seqnum);
@@ -1487,16 +1498,18 @@ void handle_data_conn() {
                 }
             }
         }
-        ++count;
-    } while(FIN != bufpkt.fin);
+
+    }
 
     if (hopfd > 2) {
         close(hopfd);
     }
-    close(fd);
+
     if (fp != NULL) {
         fclose(fp);
     }
+
+    close(fd);
 
     printf("%s: X\n", __func__);
 }
