@@ -885,7 +885,7 @@ void handle_ctrl_sendfile(int sockfd, uint16_t payload_len) {
         memset(transfer_entry, 0, sizeof(struct transfer));
 
         transfer_entry->transfer_id = transfer_id;
-        transfer_entry->start_seqnum = ntohs(seqnum);
+        transfer_entry->start_seqnum = seqnum;
         transfer_entry->ttl = ttl;
 
         // add the transfer entry to the list
@@ -914,6 +914,8 @@ void handle_ctrl_sendfile(int sockfd, uint16_t payload_len) {
 
         // Assumption: file size will always be a multiple of DATA_PYLD_SIZE
         do {
+            transfer_entry->end_seqnum = seqnum++;
+
             // copy last packet to penultimate packet
             memcpy(&penul_pkt, &last_pkt, sizeof(struct datapkt));
 
@@ -998,7 +1000,9 @@ void handle_ctrl_stats(int sockfd) {
         offset += 2;
 
         for (int i = iter->start_seqnum; i <= iter->end_seqnum; ++i) {
-            memcpy(payload + offset, &i, sizeof(uint16_t));
+            uint16_t seq = (uint16_t)i;
+            seq = htons(seq);
+            memcpy(payload + offset, &seq, sizeof(uint16_t));
             offset += sizeof(uint16_t);
         }
     } else {
