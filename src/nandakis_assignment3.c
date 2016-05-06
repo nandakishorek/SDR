@@ -1029,11 +1029,35 @@ void handle_ctrl_stats(int sockfd) {
 
 void handle_ctrl_last_pkt(int sockfd) {
     printf("%s: E\n", __func__);
+
+    char *hdr = create_response_header(sockfd, (uint8_t)LAST_DATA_PACKET, 0, sizeof(struct datapkt));
+    int len = CTRL_HDR_SIZE;
+    if (sendall(sockfd, hdr, &len) == -1) {
+        printf("%s: error - unable to send header to controller\n", __func__);
+    }
+
+    len = sizeof(struct datapkt);
+    if (sendall(sockfd, (char *)&last_pkt, &len) == -1) {
+        printf("%s: error - unable to send payload to controller\n", __func__);
+    }
+
     printf("%s: X\n", __func__);
 }
 
 void handle_ctrl_penul_pkt(int sockfd) {
     printf("%s: E\n", __func__);
+
+    char *hdr = create_response_header(sockfd, (uint8_t)PENULTIMATE_DATA_PACKET, 0, sizeof(struct datapkt));
+    int len = CTRL_HDR_SIZE;
+    if (sendall(sockfd, hdr, &len) == -1) {
+        printf("%s: error - unable to send header to controller\n", __func__);
+    }
+
+    len = sizeof(struct datapkt);
+    if (sendall(sockfd, (char *)&last_pkt, &len) == -1) {
+        printf("%s: error - unable to send payload to controller\n", __func__);
+    }
+
     printf("%s: X\n", __func__);
 }
 
