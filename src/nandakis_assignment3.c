@@ -928,7 +928,7 @@ void handle_ctrl_sendfile(int sockfd, uint16_t payload_len) {
 
             // read from file
             int nbytes = fread(&last_pkt.payload, 1, DATA_PYLD_SIZE, fp);
-            printf("%s: read %d bytes\n", __func__, nbytes);
+            //printf("%s: read %d bytes\n", __func__, nbytes);
             if (ferror(fp)) {
                 perror("error reading file");
                 break;
